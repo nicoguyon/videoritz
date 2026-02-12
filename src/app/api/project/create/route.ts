@@ -4,9 +4,11 @@ import { uploadBuffer, uploadJSON } from "@/lib/r2";
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("[create] Parsing formData...");
     const formData = await req.formData();
     const theme = formData.get("theme") as string;
     const files = formData.getAll("refs") as File[];
+    console.log("[create] Received:", { theme, fileCount: files.length, fileSizes: files.map(f => `${f.name}: ${f.size}`) });
 
     if (!theme) {
       return NextResponse.json({ error: "Theme is required" }, { status: 400 });
@@ -36,6 +38,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ projectId, refUrls });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[create] Error:", message, err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
