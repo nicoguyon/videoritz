@@ -1,0 +1,46 @@
+import { NextRequest, NextResponse } from "next/server";
+import { generateStoryboard } from "@/lib/claude";
+import { readJSON, uploadJSON } from "@/lib/r2";
+
+interface RefImage {
+  base64: string;
+  mimeType: string;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { projectId, theme, refImages, numShots } = await req.json();
+
+    if (!projectId || !theme) {
+      return NextResponse.json(
+        { error: "projectId and theme required" },
+        { status: 400 }
+      );
+    }
+
+    // Pass reference images to Claude (with vision)
+    const storyboard = await generateStoryboard(
+      theme,
+      (refImages as RefImage[]) || [],
+      numShots || 6
+    );
+
+    // Save storyboard to R2
+    await uploadJSON(`videoritz/${projectId}/storyboard.json`, storyboard);
+
+    // Update project
+    const project = await readJSON<Record<string, unknown>>(
+      `videoritz/${projectId}/project.json`
+    );
+    if (project) {
+      project.status = "storyboard";
+      project.storyboard = storyboard;
+      await uploadJSON(`videoritz/${projectId}/project.json`, project);
+    }
+
+    return NextResponse.json(storyboard);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

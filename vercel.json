@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/storyboard/route.ts": { "maxDuration": 60 },
+    "src/app/api/generate-image/route.ts": { "maxDuration": 60 },
+    "src/app/api/project/create/route.ts": { "maxDuration": 30 },
+    "src/app/api/upscale/create/route.ts": { "maxDuration": 30 },
+    "src/app/api/animate/create/route.ts": { "maxDuration": 30 },
+    "src/app/api/music/create/route.ts": { "maxDuration": 30 }
+  }
+}
