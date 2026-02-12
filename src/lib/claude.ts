@@ -181,5 +181,9 @@ Generate a cinematic storyboard with ${numShots} shots. Return JSON:
     .replace(/\n?```\s*$/i, "")
     .trim();
 
-  return JSON.parse(cleaned) as StoryboardResult;
+  try {
+    return JSON.parse(cleaned) as StoryboardResult;
+  } catch {
+    throw new Error(`Claude returned invalid JSON: ${cleaned.slice(0, 200)}`);
+  }
 }

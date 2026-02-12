@@ -29,7 +29,15 @@ export default function VideoPreview({
   const [assemblePct, setAssemblePct] = useState(0);
   const [assembleError, setAssembleError] = useState<string | null>(null);
   const [localBlobUrl, setLocalBlobUrl] = useState<string | null>(null);
+  const prevBlobUrl = useRef<string | null>(null);
   const didAssemble = useRef(false);
+
+  // Revoke previous blob URLs to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (prevBlobUrl.current) URL.revokeObjectURL(prevBlobUrl.current);
+    };
+  }, []);
 
   // Only consider non-failed shots for assembly
   const activeShots = shots.filter((s) => !s.failed);
@@ -93,7 +101,9 @@ export default function VideoPreview({
         setAssemblePct(pct)
       );
 
+      if (prevBlobUrl.current) URL.revokeObjectURL(prevBlobUrl.current);
       const url = URL.createObjectURL(blob);
+      prevBlobUrl.current = url;
       setLocalBlobUrl(url);
       onFinalize(blob);
     } catch (err: unknown) {
