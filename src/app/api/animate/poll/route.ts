@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
     // If succeed, download video and store on R2
     if (status === "succeed" && videoUrl && projectId && shotIndex) {
       const videoRes = await fetch(videoUrl);
+      if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.status}`);
       const buffer = Buffer.from(await videoRes.arrayBuffer());
       const key = `videoritz/${projectId}/videos/shot_${shotIndex}.mp4`;
       const r2Url = await uploadBuffer(key, buffer, "video/mp4");

@@ -168,12 +168,7 @@ export async function POST(
     }
 
     // Cleanup
-    for (const clipPath of clipPaths) {
-      try { unlinkSync(clipPath); } catch {}
-    }
-    if (musicPath) { try { unlinkSync(musicPath); } catch {} }
-    try { unlinkSync(outputPath); } catch {}
-    if (tmpDir) { try { rmdirSync(tmpDir); } catch {} }
+    if (tmpDir) { try { rmdirSync(tmpDir, { recursive: true }); } catch {} }
 
     return NextResponse.json({ url, size: finalBuffer.length, mode: "server" });
   } catch (err: unknown) {

@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     // If success, download and store on R2
     if (result.status === "SUCCESS" && result.audioUrl && projectId) {
       const audioRes = await fetch(result.audioUrl);
+      if (!audioRes.ok) throw new Error(`Failed to download audio: ${audioRes.status}`);
       const buffer = Buffer.from(await audioRes.arrayBuffer());
       const key = `videoritz/${projectId}/music/track.mp3`;
       const r2Url = await uploadBuffer(key, buffer, "audio/mpeg");

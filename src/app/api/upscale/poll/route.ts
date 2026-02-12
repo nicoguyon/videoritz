@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
     // If completed, download and store on R2
     if (result.status === "COMPLETED" && result.url && projectId && shotIndex) {
       const imageRes = await fetch(result.url);
+      if (!imageRes.ok) throw new Error(`Failed to download upscaled image: ${imageRes.status}`);
       const buffer = Buffer.from(await imageRes.arrayBuffer());
       const key = `videoritz/${projectId}/upscaled/shot_${shotIndex}.png`;
       const r2Url = await uploadBuffer(key, buffer, "image/png");
