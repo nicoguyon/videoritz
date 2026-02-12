@@ -1,4 +1,5 @@
-const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || "").trim();
+import { cleanEnv } from "./env";
+const ANTHROPIC_API_KEY = cleanEnv("ANTHROPIC_API_KEY");
 
 interface Shot {
   index: number;

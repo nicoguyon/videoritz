@@ -1,4 +1,5 @@
-const API_KEY = (process.env.FREEPIK_API_KEY || "").trim();
+import { cleanEnv } from "./env";
+const API_KEY = cleanEnv("FREEPIK_API_KEY");
 const BASE = "https://api.freepik.com/v1/ai/image-upscaler-precision-v2";
 const HEADERS = { "x-freepik-api-key": API_KEY };
 

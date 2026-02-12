@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 
-const ACCESS_KEY = (process.env.KLING_ACCESS_KEY || "").trim();
-const SECRET_KEY = (process.env.KLING_SECRET_KEY || "").trim();
+import { cleanEnv } from "./env";
+const ACCESS_KEY = cleanEnv("KLING_ACCESS_KEY");
+const SECRET_KEY = cleanEnv("KLING_SECRET_KEY");
 const BASE_URL = "https://api-singapore.klingai.com";
 
 function getJwt(): string {

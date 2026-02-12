@@ -1,4 +1,5 @@
-const API_KEY = (process.env.SUNO_API_KEY || "").trim();
+import { cleanEnv } from "./env";
+const API_KEY = cleanEnv("SUNO_API_KEY");
 const BASE_URL = "https://api.sunoapi.org";
 const HEADERS = {
   Authorization: `Bearer ${API_KEY}`,

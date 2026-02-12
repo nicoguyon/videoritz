@@ -1,4 +1,5 @@
-const API_KEY = (process.env.FREEPIK_API_KEY || "").trim();
+import { cleanEnv } from "./env";
+const API_KEY = cleanEnv("FREEPIK_API_KEY");
 const MCP_URL = "https://api.freepik.com/mcp";
 
 interface McpResponse {

@@ -3,18 +3,19 @@ import {
   PutObjectCommand,
   GetObjectCommand,
 } from "@aws-sdk/client-s3";
+import { cleanEnv } from "./env";
 
 const s3 = new S3Client({
   region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  endpoint: `https://${cleanEnv("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    accessKeyId: cleanEnv("R2_ACCESS_KEY_ID"),
+    secretAccessKey: cleanEnv("R2_SECRET_ACCESS_KEY"),
   },
 });
 
-const BUCKET = process.env.R2_BUCKET_NAME!;
-const PUBLIC_URL = process.env.R2_PUBLIC_URL!;
+const BUCKET = cleanEnv("R2_BUCKET_NAME");
+const PUBLIC_URL = cleanEnv("R2_PUBLIC_URL");
 
 export async function uploadBuffer(
   key: string,
