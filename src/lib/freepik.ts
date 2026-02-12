@@ -1,4 +1,4 @@
-const API_KEY = process.env.FREEPIK_API_KEY!;
+const API_KEY = (process.env.FREEPIK_API_KEY || "").trim();
 const BASE = "https://api.freepik.com/v1/ai/image-upscaler-precision-v2";
 const HEADERS = { "x-freepik-api-key": API_KEY };
 

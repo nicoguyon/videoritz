@@ -1,4 +1,4 @@
-const API_KEY = process.env.FREEPIK_API_KEY!;
+const API_KEY = (process.env.FREEPIK_API_KEY || "").trim();
 const MCP_URL = "https://api.freepik.com/mcp";
 
 interface McpResponse {
