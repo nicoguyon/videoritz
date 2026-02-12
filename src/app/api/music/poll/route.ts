@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ status: result.status });
+    return NextResponse.json({ status: result.status }, {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

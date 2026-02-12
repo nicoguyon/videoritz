@@ -82,7 +82,6 @@ export default function Home() {
               </h1>
               <p className="text-[11px] text-ritz-muted/80 font-light">
                 Excellence cinematique par l&apos;intelligence artificielle
-                <span className="ml-2 text-[10px] text-ritz-accent/60 font-semibold">v2.2</span>
               </p>
             </div>
           </div>

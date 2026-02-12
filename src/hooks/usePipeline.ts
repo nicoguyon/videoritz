@@ -339,29 +339,19 @@ export function usePipeline() {
         formData.append("format", format);
         files.forEach((f) => formData.append("refs", f));
 
-        console.log("[VideoRitz] Uploading project...", { theme, numShots: numShots, format, fileCount: files.length, fileSizes: files.map(f => `${f.name}: ${(f.size/1024).toFixed(1)}KB`) });
-        let createRes: Response;
-        try {
-          createRes = await fetch("/api/project/create", {
-            method: "POST",
-            body: formData,
-          });
-        } catch (fetchErr) {
-          console.error("[VideoRitz] Fetch itself failed:", fetchErr);
-          throw new Error(`Network error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`);
-        }
-        console.log("[VideoRitz] Create response:", { status: createRes.status, ok: createRes.ok, statusText: createRes.statusText });
+        const createRes = await fetch("/api/project/create", {
+          method: "POST",
+          body: formData,
+        });
         if (!createRes.ok) {
           const errText = await createRes.text().catch(() => "");
-          console.error("[VideoRitz] Server error response:", errText);
           let errMsg = `Server error ${createRes.status}`;
           try { const errJson = JSON.parse(errText); errMsg = errJson.error || errMsg; } catch {}
           throw new Error(errMsg);
         }
         const createData = await createRes.json();
-        console.log("[VideoRitz] Create success:", createData);
         const { projectId, refUrls } = createData;
-        if (!projectId) throw new Error(`No projectId in response: ${JSON.stringify(createData)}`);
+        if (!projectId) throw new Error("Failed to create project");
         update({ projectId, progress: 5 });
 
         if (abortRef.current) return;
@@ -386,8 +376,6 @@ export function usePipeline() {
                      uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50) {
             mimeType = "image/webp";
           }
-          console.log(`[VideoRitz] Image ${file.name}: declared=${file.type}, detected=${mimeType}, size=${uint8.length}`);
-
           let binary = "";
           const chunkSize = 8192;
           for (let offset = 0; offset < uint8.length; offset += chunkSize) {
@@ -462,11 +450,24 @@ export function usePipeline() {
         return;
       }
 
-      // Convert ref images
+      // Convert ref images (with magic bytes MIME detection)
       const refImages: { base64: string; mimeType: string }[] = [];
       for (const file of files) {
         const bytes = await file.arrayBuffer();
         const uint8 = new Uint8Array(bytes);
+
+        let mimeType = file.type || "image/png";
+        if (uint8[0] === 0xFF && uint8[1] === 0xD8 && uint8[2] === 0xFF) {
+          mimeType = "image/jpeg";
+        } else if (uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4E && uint8[3] === 0x47) {
+          mimeType = "image/png";
+        } else if (uint8[0] === 0x47 && uint8[1] === 0x49 && uint8[2] === 0x46) {
+          mimeType = "image/gif";
+        } else if (uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46 &&
+                   uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50) {
+          mimeType = "image/webp";
+        }
+
         let binary = "";
         const chunkSize = 8192;
         for (let offset = 0; offset < uint8.length; offset += chunkSize) {
@@ -475,7 +476,7 @@ export function usePipeline() {
           );
         }
         const base64 = btoa(binary);
-        refImages.push({ base64, mimeType: file.type || "image/png" });
+        refImages.push({ base64, mimeType });
       }
       refImagesRef.current = refImages;
 

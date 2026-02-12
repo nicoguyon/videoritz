@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { cleanEnv } from "@/lib/env";
+import { readJSON } from "@/lib/r2";
 
 const s3 = new S3Client({
   region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  endpoint: `https://${cleanEnv("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    accessKeyId: cleanEnv("R2_ACCESS_KEY_ID"),
+    secretAccessKey: cleanEnv("R2_SECRET_ACCESS_KEY"),
   },
 });
 
-const BUCKET = process.env.R2_BUCKET_NAME!;
-const PUBLIC_URL = process.env.R2_PUBLIC_URL!;
+const BUCKET = cleanEnv("R2_BUCKET_NAME");
 
 export async function GET() {
   try {
-    // List all folders in videoritz/
     const result = await s3.send(
       new ListObjectsV2Command({
         Bucket: BUCKET,
@@ -31,19 +31,16 @@ export async function GET() {
       })
       .filter((p): p is { id: string } => p !== null);
 
-    // Fetch project.json for each project to get metadata
+    // Read project.json directly from R2 (no CORS issues, faster)
     const projectsWithMeta = await Promise.all(
       projects.map(async ({ id }) => {
         try {
-          const projectUrl = `${PUBLIC_URL}/videoritz/${id}/project.json`;
-          const res = await fetch(projectUrl);
-          if (!res.ok) return { id, status: "unknown", theme: "Unknown" };
-
-          const data = await res.json();
+          const data = await readJSON<Record<string, unknown>>(`videoritz/${id}/project.json`);
+          if (!data) return { id, status: "unknown", theme: "Unknown" };
           return {
             id,
-            theme: data.theme || "Unknown",
-            status: data.status || "unknown",
+            theme: (data.theme as string) || "Unknown",
+            status: (data.status as string) || "unknown",
             finalVideoUrl: data.finalVideoUrl,
             createdAt: data.createdAt,
           };
