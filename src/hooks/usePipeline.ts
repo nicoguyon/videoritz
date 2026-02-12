@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { usePolling } from "./usePolling";
+import { compressImage } from "@/lib/image-utils";
 
 export type PipelineStage =
   | "idle"
@@ -117,7 +118,8 @@ export function usePipeline() {
       shot: Shot,
       projectId: string,
       refImages: { base64: string; mimeType: string }[],
-      format: string
+      format: string,
+      attempt = 1
     ) => {
       try {
         // Clear any previous failure
@@ -197,7 +199,15 @@ export function usePipeline() {
         updateShot(shot.index, { videoUrl: videoUrl as string });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Unknown error";
-        console.warn(`Shot ${shot.index} (${shot.name}) failed: ${message}`);
+
+        // Auto-retry once
+        if (attempt < 2) {
+          console.warn(`Shot ${shot.index} failed (attempt ${attempt}), retrying...`);
+          await new Promise(r => setTimeout(r, 3000)); // Wait 3s before retry
+          return processShot(shot, projectId, refImages, format, attempt + 1);
+        }
+
+        console.warn(`Shot ${shot.index} (${shot.name}) failed after ${attempt} attempts: ${message}`);
         updateShot(shot.index, { failed: true, failError: message });
       }
     },
@@ -350,7 +360,7 @@ export function usePipeline() {
           throw new Error(errMsg);
         }
         const createData = await createRes.json();
-        const { projectId, refUrls } = createData;
+        const { projectId } = createData;
         if (!projectId) throw new Error("Failed to create project");
         update({ projectId, progress: 5 });
 
@@ -361,30 +371,8 @@ export function usePipeline() {
 
         const refImages: { base64: string; mimeType: string }[] = [];
         for (const file of files) {
-          const bytes = await file.arrayBuffer();
-          const uint8 = new Uint8Array(bytes);
-
-          // Detect actual MIME type from magic bytes (not file.type which can lie)
-          let mimeType = file.type || "image/png";
-          if (uint8[0] === 0xFF && uint8[1] === 0xD8 && uint8[2] === 0xFF) {
-            mimeType = "image/jpeg";
-          } else if (uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4E && uint8[3] === 0x47) {
-            mimeType = "image/png";
-          } else if (uint8[0] === 0x47 && uint8[1] === 0x49 && uint8[2] === 0x46) {
-            mimeType = "image/gif";
-          } else if (uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46 &&
-                     uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50) {
-            mimeType = "image/webp";
-          }
-          let binary = "";
-          const chunkSize = 8192;
-          for (let offset = 0; offset < uint8.length; offset += chunkSize) {
-            binary += String.fromCharCode(
-              ...uint8.subarray(offset, offset + chunkSize)
-            );
-          }
-          const base64 = btoa(binary);
-          refImages.push({ base64, mimeType });
+          const compressed = await compressImage(file);
+          refImages.push(compressed);
         }
         refImagesRef.current = refImages;
 
@@ -450,33 +438,11 @@ export function usePipeline() {
         return;
       }
 
-      // Convert ref images (with magic bytes MIME detection)
+      // Convert ref images (with compression)
       const refImages: { base64: string; mimeType: string }[] = [];
       for (const file of files) {
-        const bytes = await file.arrayBuffer();
-        const uint8 = new Uint8Array(bytes);
-
-        let mimeType = file.type || "image/png";
-        if (uint8[0] === 0xFF && uint8[1] === 0xD8 && uint8[2] === 0xFF) {
-          mimeType = "image/jpeg";
-        } else if (uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4E && uint8[3] === 0x47) {
-          mimeType = "image/png";
-        } else if (uint8[0] === 0x47 && uint8[1] === 0x49 && uint8[2] === 0x46) {
-          mimeType = "image/gif";
-        } else if (uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46 &&
-                   uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50) {
-          mimeType = "image/webp";
-        }
-
-        let binary = "";
-        const chunkSize = 8192;
-        for (let offset = 0; offset < uint8.length; offset += chunkSize) {
-          binary += String.fromCharCode(
-            ...uint8.subarray(offset, offset + chunkSize)
-          );
-        }
-        const base64 = btoa(binary);
-        refImages.push({ base64, mimeType });
+        const compressed = await compressImage(file);
+        refImages.push(compressed);
       }
       refImagesRef.current = refImages;
 

@@ -13,12 +13,12 @@ interface ShotGridProps {
 export default function ShotGrid({ shots, stage, format = "16:9", onRetry }: ShotGridProps) {
   if (shots.length === 0) return null;
 
-  // Adjust grid columns based on shot count
+  // Adjust grid columns based on shot count — mobile-first
   const gridCols = shots.length <= 4
-    ? "grid-cols-2 md:grid-cols-4"
+    ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-4"
     : shots.length <= 6
-      ? "grid-cols-3 md:grid-cols-6"
-      : "grid-cols-4 md:grid-cols-5 lg:grid-cols-8";
+      ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-6"
+      : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8";
 
   const failedCount = shots.filter((s) => s.failed).length;
 

@@ -69,7 +69,7 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-7 bg-ritz-card/50 border border-ritz-border/50 rounded-3xl p-8 backdrop-blur-sm">
+    <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-7 bg-ritz-card/50 border border-ritz-border/50 rounded-2xl sm:rounded-3xl p-5 sm:p-8 backdrop-blur-sm">
       {/* Theme input */}
       <div>
         <label className="block text-xs font-medium text-ritz-muted mb-2">
@@ -90,7 +90,7 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
         <label className="block text-xs font-medium text-ritz-muted mb-2">
           Format video
         </label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {(["9:16", "16:9", "1:1"] as VideoFormat[]).map((f) => (
             <button
               key={f}
@@ -116,7 +116,7 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
         <label className="block text-xs font-medium text-ritz-muted mb-2">
           Nombre de plans
         </label>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[4, 6, 8, 10].map((n) => (
             <button
               key={n}
@@ -172,7 +172,8 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
             </div>
             <div>
               <p className="text-sm text-ritz-text">
-                Glissez vos images ici
+                <span className="hidden sm:inline">Glissez vos images ici</span>
+                <span className="sm:hidden">Touchez pour ajouter des images</span>
               </p>
               <p className="text-xs text-ritz-muted mt-1">
                 PNG, JPG — pour la coherence visuelle

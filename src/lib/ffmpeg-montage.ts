@@ -69,7 +69,7 @@ export async function assembleMontage(
     const totalDur = N * CLIP_DUR - (N - 1) * XFADE;
 
     // Build xfade chain
-    let filterParts: string[] = [];
+    const filterParts: string[] = [];
     let prevLabel = "[0:v]";
 
     for (let i = 1; i < N; i++) {

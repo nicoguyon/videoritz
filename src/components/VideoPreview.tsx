@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Download, Upload, Loader2, Play, AlertTriangle } from "lucide-react";
-import { assembleMontage } from "@/lib/ffmpeg-montage";
 import type { Shot } from "@/hooks/usePipeline";
 
 interface VideoPreviewProps {
@@ -88,14 +87,18 @@ export default function VideoPreview({
             return;
           }
 
-          console.warn("Server montage failed, falling back to client-side");
-        } catch (serverErr) {
-          console.warn("Server montage error:", serverErr);
+          // 501 = no FFmpeg on server (Vercel), fall through silently to client-side
+          if (serverRes.status !== 501) {
+            console.warn("Server montage failed, falling back to client-side");
+          }
+        } catch {
+          // Network error — fall through to client-side
         }
       }
 
-      // Fallback: Client-side montage with ffmpeg.wasm
+      // Fallback: Client-side montage with ffmpeg.wasm (lazy loaded)
       setAssemblePct(0);
+      const { assembleMontage } = await import("@/lib/ffmpeg-montage");
       const videoUrls = activeShots.map((s) => s.videoUrl!);
       const blob = await assembleMontage(videoUrls, musicUrl, (pct) =>
         setAssemblePct(pct)

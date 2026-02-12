@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { motion, Reorder } from "framer-motion";
 import { Edit3, Play, Trash2, Plus, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
 import type { Shot } from "@/hooks/usePipeline";
@@ -16,7 +16,11 @@ export default function StoryboardEditor({
   onConfirm,
   onCancel,
 }: StoryboardEditorProps) {
-  const [editedShots, setEditedShots] = useState<Shot[]>(shots);
+  const initialShots = useMemo(
+    () => shots.map((s, i) => ({ ...s, _id: `shot-${i}` })),
+    [shots]
+  );
+  const [editedShots, setEditedShots] = useState<(Shot & { _id: string })[]>(initialShots);
 
   const updateShot = (index: number, field: keyof Shot, value: string) => {
     setEditedShots((prev) =>
@@ -43,6 +47,7 @@ export default function StoryboardEditor({
         imagePrompt: "",
         motionPrompt: "",
         musicCue: "",
+        _id: `shot-new-${prev.length}`,
       },
     ]);
   }, []);
@@ -64,7 +69,7 @@ export default function StoryboardEditor({
     });
   }, []);
 
-  const handleReorder = useCallback((newOrder: Shot[]) => {
+  const handleReorder = useCallback((newOrder: (Shot & { _id: string })[]) => {
     // Re-index after reorder
     setEditedShots(newOrder.map((s, i) => ({ ...s, index: i })));
   }, []);
@@ -93,7 +98,7 @@ export default function StoryboardEditor({
       >
         {editedShots.map((shot) => (
           <Reorder.Item
-            key={shot.index}
+            key={shot._id}
             value={shot}
             className="p-4 bg-ritz-card border border-ritz-border rounded-2xl space-y-3 cursor-grab active:cursor-grabbing"
           >
@@ -190,7 +195,7 @@ export default function StoryboardEditor({
           Annuler
         </button>
         <button
-          onClick={() => onConfirm(editedShots)}
+          onClick={() => onConfirm(editedShots.map(({ _id: _unused, ...rest }) => rest))}
           disabled={editedShots.length < 2 || editedShots.some((s) => !s.imagePrompt.trim())}
           className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-ritz-accent to-ritz-accent-hover text-ritz-bg rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-ritz-accent/30 transition-all disabled:opacity-50 cursor-pointer"
         >

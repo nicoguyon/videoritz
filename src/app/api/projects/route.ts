@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { NextRequest, NextResponse } from "next/server";
+import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { cleanEnv } from "@/lib/env";
 import { readJSON } from "@/lib/r2";
 
@@ -51,6 +51,47 @@ export async function GET() {
     );
 
     return NextResponse.json(projectsWithMeta);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { projectId } = await req.json();
+
+    if (!projectId) {
+      return NextResponse.json({ error: "projectId required" }, { status: 400 });
+    }
+
+    // List all objects under this project prefix and delete them
+    const listResult = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET,
+        Prefix: `videoritz/${projectId}/`,
+      })
+    );
+
+    const keys = (listResult.Contents || [])
+      .map((obj) => obj.Key)
+      .filter((key): key is string => Boolean(key));
+
+    if (keys.length === 0) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    // Delete all objects (R2 supports up to 1000 per delete)
+    await s3.send(
+      new DeleteObjectsCommand({
+        Bucket: BUCKET,
+        Delete: {
+          Objects: keys.map((Key) => ({ Key })),
+        },
+      })
+    );
+
+    return NextResponse.json({ deleted: keys.length });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

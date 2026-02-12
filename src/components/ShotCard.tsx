@@ -10,6 +10,7 @@ import {
   Loader2,
   AlertTriangle,
   RefreshCw,
+  X,
 } from "lucide-react";
 import type { Shot } from "@/hooks/usePipeline";
 
@@ -65,6 +66,7 @@ export default function ShotCard({ shot, stage, format = "16:9", onRetry }: Shot
   const steps = getSteps(shot, stage);
   const previewUrl = shot.upscaledUrl || shot.imageUrl;
   const [retrying, setRetrying] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const getAspectClass = () => {
     switch (format) {
@@ -94,7 +96,10 @@ export default function ShotCard({ shot, stage, format = "16:9", onRetry }: Shot
       }`}
     >
       {/* Image/Video preview */}
-      <div className={`${getAspectClass()} bg-ritz-soft relative overflow-hidden`}>
+      <div
+        className={`${getAspectClass()} bg-ritz-soft relative overflow-hidden ${previewUrl ? "cursor-pointer" : ""}`}
+        onClick={() => previewUrl && setLightboxOpen(true)}
+      >
         {shot.videoUrl ? (
           <video
             src={shot.videoUrl}
@@ -182,6 +187,41 @@ export default function ShotCard({ shot, stage, format = "16:9", onRetry }: Shot
           ))}
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightboxOpen && previewUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            onClick={() => setLightboxOpen(false)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors cursor-pointer"
+          >
+            <X size={20} />
+          </button>
+          {shot.videoUrl ? (
+            <video
+              src={shot.videoUrl}
+              className="max-w-full max-h-full rounded-lg"
+              controls
+              autoPlay
+              playsInline
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={previewUrl}
+              alt={shot.name}
+              className="max-w-full max-h-full rounded-lg object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-black/60 px-4 py-2 rounded-full backdrop-blur-sm">
+            Plan {shot.index + 1} — {shot.name}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

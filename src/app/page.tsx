@@ -22,6 +22,26 @@ export default function Home() {
   } | null>(null);
   const didAutoResume = useRef(false);
 
+  // Browser notification when pipeline completes
+  useEffect(() => {
+    if (state.stage === "done") {
+      // Play a subtle sound
+      try {
+        const audio = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgkKuwo3VLOFKGr7Ssf1A7TIGpr6x+UDtNgqiurH9PO02BqK6sgE87TYGorqyATztNgaiurIBPO02BqK6sgE87TYGorqyATztNgqiurH9QO02BqK6sf1A7TICprqx/UDxOgamuq39QO02BqK6sf1A7TYGorqyATztNgaiurIBPO02BqK6sgE87TYGorqyATztNgaiurIBPO02BqK6sgE87TYGorqx/UDtNgaiurH9QO02Bqa6rf1A7TYKprqt/UDtNg6muq39QO0yDqa6sf1A7TIOprqt/UDtMg6muq39QO0yDqa6rf1E7TIOprqt/UDtNg6muq39QO0yDqa6rf1A7TIOprqt/UDtMg6muq39QO0yDqa6rf1A7TIOprqt/UDtMg6murH9QO0yDqa6rf1A7TIOprqt/UDtMg6murH9QO0yDqa6rf1A7TIOprqx/UDtMg6murH9QO0yDqa6sf1A7TIKprqx/UDtNgqiurH9QO02BqK6sf1A7TYGorqx/UDtNgaiurH9QO02BqK6sf1A7TYGorqx/UDtNgaiurH9QO02BqK6sgE87TYGorqyATztN");
+        audio.volume = 0.3;
+        audio.play().catch(() => {});
+      } catch {}
+
+      // Browser notification
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("VideoRitz", {
+          body: "Votre video cinematique est prete !",
+          icon: "/next.svg",
+        });
+      }
+    }
+  }, [state.stage]);
+
   // Auto-resume from URL ?resume=projectId
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -42,6 +62,11 @@ export default function Home() {
     format: VideoFormat,
     videoRefDescription?: string
   ) => {
+    // Request notification permission
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
     setFormData({ theme, files, numShots, format });
     run(theme, files, numShots, format, videoRefDescription);
   };
@@ -59,10 +84,11 @@ export default function Home() {
     <main className="min-h-screen bg-ritz-bg text-ritz-text font-sans antialiased">
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-ritz-border bg-ritz-bg/95 backdrop-blur-lg">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="relative flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-ritz-accent to-ritz-accent-hover shadow-lg shadow-ritz-accent/25">
-              <Film size={20} className="text-ritz-bg" strokeWidth={2.5} />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="relative flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-ritz-accent to-ritz-accent-hover shadow-lg shadow-ritz-accent/25">
+              <Film size={18} className="text-ritz-bg sm:hidden" strokeWidth={2.5} />
+              <Film size={20} className="text-ritz-bg hidden sm:block" strokeWidth={2.5} />
               <motion.div
                 animate={{
                   scale: [1, 1.15, 1],
@@ -77,45 +103,45 @@ export default function Home() {
               />
             </div>
             <div>
-              <h1 className="text-xl font-display font-semibold tracking-wide text-ritz-accent">
+              <h1 className="text-lg sm:text-xl font-display font-semibold tracking-wide text-ritz-accent">
                 VideoRitz
               </h1>
-              <p className="text-[11px] text-ritz-muted/80 font-light">
+              <p className="text-[10px] sm:text-[11px] text-ritz-muted/80 font-light hidden sm:block">
                 Excellence cinematique par l&apos;intelligence artificielle
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <Link
               href="/projects"
-              className="flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-ritz-muted hover:text-ritz-accent bg-ritz-card hover:bg-ritz-soft border border-ritz-border hover:border-ritz-accent/30 rounded-lg transition-all duration-300"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-medium text-ritz-muted hover:text-ritz-accent bg-ritz-card hover:bg-ritz-soft border border-ritz-border hover:border-ritz-accent/30 rounded-lg transition-all duration-300"
             >
               <Folder size={13} />
-              Projets
+              <span className="hidden sm:inline">Projets</span>
             </Link>
             {state.stage !== "idle" && (
               <button
                 onClick={reset}
-                className="flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-ritz-accent hover:text-ritz-accent-hover bg-ritz-card hover:bg-ritz-soft border border-ritz-accent/30 hover:border-ritz-accent rounded-lg transition-all duration-300 cursor-pointer"
+                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-xs font-medium text-ritz-accent hover:text-ritz-accent-hover bg-ritz-card hover:bg-ritz-soft border border-ritz-accent/30 hover:border-ritz-accent rounded-lg transition-all duration-300 cursor-pointer"
               >
                 <RotateCcw size={13} />
-                Nouveau
+                <span className="hidden sm:inline">Nouveau</span>
               </button>
             )}
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-10 space-y-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6 sm:space-y-10">
         {/* Form section */}
         {(state.stage === "idle" || state.stage === "error") && (
-          <section className="space-y-8">
-            <div className="text-center space-y-3">
-              <h2 className="text-3xl font-display font-semibold text-ritz-accent">
+          <section className="space-y-6 sm:space-y-8">
+            <div className="text-center space-y-2 sm:space-y-3">
+              <h2 className="text-2xl sm:text-3xl font-display font-semibold text-ritz-accent">
                 Creez votre video cinematique
               </h2>
-              <p className="text-sm text-ritz-muted/90 max-w-md mx-auto leading-relaxed">
+              <p className="text-xs sm:text-sm text-ritz-muted/90 max-w-md mx-auto leading-relaxed px-2">
                 Uploadez des images de reference et decrivez votre theme.
                 L&apos;IA genere un storyboard, les images, les animations et la
                 musique automatiquement.
