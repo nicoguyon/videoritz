@@ -262,8 +262,8 @@ export default function Home() {
         )}
       </div>
 
-      {/* Decorative background */}
-      <div className="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
+      {/* Decorative background — hidden on mobile (heavy blur crashes mobile Safari GPU) */}
+      <div className="fixed inset-0 -z-10 pointer-events-none overflow-hidden hidden sm:block">
         <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-ritz-accent/8 blur-[180px] rounded-full" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-ritz-soft/30 blur-[180px] rounded-full" />
         <div className="absolute top-[30%] right-[20%] w-[30%] h-[30%] bg-ritz-accent/5 blur-[120px] rounded-full" />
