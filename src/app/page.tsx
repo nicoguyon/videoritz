@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Film, RotateCcw, Play, Folder } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -12,7 +12,7 @@ import StoryboardEditor from "@/components/StoryboardEditor";
 import { usePipeline } from "@/hooks/usePipeline";
 
 export default function Home() {
-  const { state, run, reset, finalizePipeline, resume, continueFromStoryboard } = usePipeline();
+  const { state, run, reset, finalizePipeline, resume, continueFromStoryboard, retryShot } = usePipeline();
   const [resumeId, setResumeId] = useState("");
   const [formData, setFormData] = useState<{
     theme: string;
@@ -20,6 +20,17 @@ export default function Home() {
     numShots: number;
     format: VideoFormat;
   } | null>(null);
+  const didAutoResume = useRef(false);
+
+  // Auto-resume from URL ?resume=projectId
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const resumeParam = params.get("resume");
+    if (resumeParam && state.stage === "idle" && !didAutoResume.current) {
+      didAutoResume.current = true;
+      resume(resumeParam);
+    }
+  }, [state.stage, resume]);
 
   const isRunning =
     state.stage !== "idle" && state.stage !== "done" && state.stage !== "error";
@@ -28,10 +39,20 @@ export default function Home() {
     theme: string,
     files: File[],
     numShots: number,
-    format: VideoFormat
+    format: VideoFormat,
+    videoRefDescription?: string
   ) => {
     setFormData({ theme, files, numShots, format });
-    run(theme, files, numShots, format);
+    run(theme, files, numShots, format, videoRefDescription);
+  };
+
+  // Determine video aspect ratio class for preview
+  const getAspectClass = () => {
+    switch (state.format) {
+      case "9:16": return "aspect-[9/16]";
+      case "1:1": return "aspect-square";
+      default: return "aspect-video";
+    }
   };
 
   return (
@@ -60,7 +81,7 @@ export default function Home() {
                 VideoRitz
               </h1>
               <p className="text-[11px] text-ritz-muted/80 font-light">
-                Excellence cinématique par l'intelligence artificielle
+                Excellence cinematique par l&apos;intelligence artificielle
               </p>
             </div>
           </div>
@@ -92,11 +113,11 @@ export default function Home() {
           <section className="space-y-8">
             <div className="text-center space-y-3">
               <h2 className="text-3xl font-display font-semibold text-ritz-accent">
-                Créez votre vidéo cinématique
+                Creez votre video cinematique
               </h2>
               <p className="text-sm text-ritz-muted/90 max-w-md mx-auto leading-relaxed">
-                Uploadez des images de référence et décrivez votre thème.
-                L&apos;IA génère un storyboard, les images, les animations et la
+                Uploadez des images de reference et decrivez votre theme.
+                L&apos;IA genere un storyboard, les images, les animations et la
                 musique automatiquement.
               </p>
             </div>
@@ -162,7 +183,7 @@ export default function Home() {
 
         {/* Shot grid */}
         {state.stage !== "storyboard-review" && (
-          <ShotGrid shots={state.shots} stage={state.stage} />
+          <ShotGrid shots={state.shots} stage={state.stage} format={state.format} onRetry={retryShot} />
         )}
 
         {/* Music status */}
@@ -190,6 +211,7 @@ export default function Home() {
           finalVideoUrl={state.finalVideoUrl}
           finalVideoBlob={state.finalVideoBlob}
           onFinalize={finalizePipeline}
+          format={state.format}
         />
 
         {/* Done celebration */}
@@ -205,6 +227,11 @@ export default function Home() {
               Votre video cinematique est prete. Telechargez-la ou partagez le
               lien R2.
             </p>
+            {state.projectId && (
+              <p className="text-xs text-ritz-muted/60 mt-2 font-mono">
+                Projet : {state.projectId}
+              </p>
+            )}
           </motion.div>
         )}
       </div>

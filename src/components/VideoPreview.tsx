@@ -13,6 +13,7 @@ interface VideoPreviewProps {
   finalVideoUrl: string | null;
   finalVideoBlob: Blob | null;
   onFinalize: (blob: Blob, serverUrl?: string) => void;
+  format?: string;
 }
 
 export default function VideoPreview({
@@ -22,6 +23,7 @@ export default function VideoPreview({
   finalVideoUrl,
   finalVideoBlob,
   onFinalize,
+  format = "16:9",
 }: VideoPreviewProps) {
   const [assembling, setAssembling] = useState(false);
   const [assemblePct, setAssemblePct] = useState(0);
@@ -29,8 +31,18 @@ export default function VideoPreview({
   const [localBlobUrl, setLocalBlobUrl] = useState<string | null>(null);
   const didAssemble = useRef(false);
 
-  const allVideosReady = shots.length > 0 && shots.every((s) => s.videoUrl);
+  // Only consider non-failed shots for assembly
+  const activeShots = shots.filter((s) => !s.failed);
+  const allVideosReady = activeShots.length > 0 && activeShots.every((s) => s.videoUrl);
   const canAssemble = allVideosReady && musicUrl && stage === "montage";
+
+  const getAspectClass = () => {
+    switch (format) {
+      case "9:16": return "aspect-[9/16] max-w-sm";
+      case "1:1": return "aspect-square max-w-md";
+      default: return "aspect-video max-w-2xl";
+    }
+  };
 
   // Auto-start assembly when ready
   useEffect(() => {
@@ -50,7 +62,7 @@ export default function VideoPreview({
     try {
       // Try server-side montage first
       setAssemblePct(10);
-      const projectId = shots[0]?.videoUrl?.split("/")[4]; // Extract from URL: videoritz/PROJECT_ID/...
+      const projectId = shots[0]?.videoUrl?.split("/")[4];
 
       if (projectId) {
         try {
@@ -63,14 +75,11 @@ export default function VideoPreview({
             const { url } = await serverRes.json();
             setAssemblePct(100);
             setLocalBlobUrl(url);
-            // For server montage, we don't have a blob but we have the R2 URL
-            // Create a fake blob and pass the server URL
             const fakeBlob = new Blob([], { type: "video/mp4" });
             onFinalize(fakeBlob, url);
             return;
           }
 
-          // Server montage failed, fallback to client
           console.warn("Server montage failed, falling back to client-side");
         } catch (serverErr) {
           console.warn("Server montage error:", serverErr);
@@ -79,7 +88,7 @@ export default function VideoPreview({
 
       // Fallback: Client-side montage with ffmpeg.wasm
       setAssemblePct(0);
-      const videoUrls = shots.map((s) => s.videoUrl!);
+      const videoUrls = activeShots.map((s) => s.videoUrl!);
       const blob = await assembleMontage(videoUrls, musicUrl, (pct) =>
         setAssemblePct(pct)
       );
@@ -93,7 +102,7 @@ export default function VideoPreview({
     } finally {
       setAssembling(false);
     }
-  }, [shots, musicUrl, allVideosReady, onFinalize]);
+  }, [activeShots, musicUrl, allVideosReady, onFinalize]);
 
   const downloadVideo = useCallback(() => {
     const url = localBlobUrl || finalVideoUrl;
@@ -106,7 +115,6 @@ export default function VideoPreview({
   }, [localBlobUrl, finalVideoUrl]);
 
   const downloadAssets = useCallback(() => {
-    // Fallback: download individual clips + music
     for (const shot of shots) {
       if (shot.videoUrl) {
         const a = document.createElement("a");
@@ -160,7 +168,7 @@ export default function VideoPreview({
         <div className="p-4 bg-ritz-card border border-ritz-border rounded-2xl space-y-3">
           <div className="flex items-center gap-2 text-sm text-ritz-warning">
             <AlertTriangle size={16} />
-            Montage navigateur echoue: {assembleError}
+            Montage echoue: {assembleError}
           </div>
           <button
             onClick={downloadAssets}
@@ -186,7 +194,7 @@ export default function VideoPreview({
       {/* Video player */}
       {previewUrl && (
         <div className="space-y-3">
-          <div className="relative aspect-[9/16] max-w-sm mx-auto bg-black rounded-2xl overflow-hidden shadow-2xl shadow-ritz-accent/10">
+          <div className={`relative ${getAspectClass()} mx-auto bg-black rounded-2xl overflow-hidden shadow-2xl shadow-ritz-accent/10`}>
             <video
               src={previewUrl}
               controls

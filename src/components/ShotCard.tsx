@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Image as ImageIcon,
@@ -7,12 +8,16 @@ import {
   Film,
   Check,
   Loader2,
+  AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import type { Shot } from "@/hooks/usePipeline";
 
 interface ShotCardProps {
   shot: Shot;
   stage: string;
+  format?: string;
+  onRetry?: (shotIndex: number) => Promise<void>;
 }
 
 type StepStatus = "pending" | "active" | "done";
@@ -56,19 +61,40 @@ function getSteps(
   ];
 }
 
-export default function ShotCard({ shot, stage }: ShotCardProps) {
+export default function ShotCard({ shot, stage, format = "16:9", onRetry }: ShotCardProps) {
   const steps = getSteps(shot, stage);
   const previewUrl = shot.upscaledUrl || shot.imageUrl;
+  const [retrying, setRetrying] = useState(false);
+
+  const getAspectClass = () => {
+    switch (format) {
+      case "9:16": return "aspect-[9/16]";
+      case "1:1": return "aspect-square";
+      default: return "aspect-video";
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!onRetry || retrying) return;
+    setRetrying(true);
+    try {
+      await onRetry(shot.index);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: shot.index * 0.05 }}
-      className="relative bg-ritz-card border border-ritz-border rounded-2xl overflow-hidden group hover:border-ritz-accent/30 transition-all duration-300"
+      className={`relative bg-ritz-card border rounded-2xl overflow-hidden group transition-all duration-300 ${
+        shot.failed ? "border-ritz-error/50" : "border-ritz-border hover:border-ritz-accent/30"
+      }`}
     >
       {/* Image/Video preview */}
-      <div className="aspect-[9/16] bg-ritz-soft relative overflow-hidden">
+      <div className={`${getAspectClass()} bg-ritz-soft relative overflow-hidden`}>
         {shot.videoUrl ? (
           <video
             src={shot.videoUrl}
@@ -84,6 +110,24 @@ export default function ShotCard({ shot, stage }: ShotCardProps) {
             alt={shot.name}
             className="absolute inset-0 w-full h-full object-cover"
           />
+        ) : shot.failed ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-ritz-error/5">
+            <AlertTriangle size={20} className="text-ritz-error/70" />
+            {onRetry && (
+              <button
+                onClick={handleRetry}
+                disabled={retrying}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-ritz-error/10 hover:bg-ritz-error/20 text-ritz-error text-[10px] font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {retrying ? (
+                  <Loader2 size={10} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={10} />
+                )}
+                {retrying ? "Retry..." : "Retry"}
+              </button>
+            )}
+          </div>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-8 h-8 rounded-full bg-ritz-accent/20 flex items-center justify-center">
@@ -102,20 +146,31 @@ export default function ShotCard({ shot, stage }: ShotCardProps) {
       <div className="p-3 space-y-2">
         <p className="text-xs font-medium truncate">{shot.name}</p>
 
+        {/* Error message */}
+        {shot.failed && shot.failError && (
+          <p className="text-[10px] text-ritz-error truncate" title={shot.failError}>
+            {shot.failError}
+          </p>
+        )}
+
         {/* Step indicators */}
         <div className="flex gap-1.5">
           {steps.map((step) => (
             <div
               key={step.label}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium ${
-                step.status === "done"
-                  ? "bg-ritz-success/20 text-ritz-success"
-                  : step.status === "active"
-                    ? "bg-ritz-accent/20 text-ritz-accent"
-                    : "bg-ritz-soft text-ritz-muted/50"
+                shot.failed
+                  ? "bg-ritz-error/10 text-ritz-error/60"
+                  : step.status === "done"
+                    ? "bg-ritz-success/20 text-ritz-success"
+                    : step.status === "active"
+                      ? "bg-ritz-accent/20 text-ritz-accent"
+                      : "bg-ritz-soft text-ritz-muted/50"
               }`}
             >
-              {step.status === "active" ? (
+              {shot.failed ? (
+                <AlertTriangle size={10} />
+              ) : step.status === "active" ? (
                 <Loader2 size={10} className="animate-spin" />
               ) : step.status === "done" ? (
                 <Check size={10} />

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateStoryboard } from "@/lib/claude";
+import { generateStoryboard, analyzeReferenceVideo } from "@/lib/claude";
 import { readJSON, uploadJSON } from "@/lib/r2";
 
 interface RefImage {
@@ -9,7 +9,7 @@ interface RefImage {
 
 export async function POST(req: NextRequest) {
   try {
-    const { projectId, theme, refImages, numShots } = await req.json();
+    const { projectId, theme, refImages, numShots, videoRefDescription } = await req.json();
 
     if (!projectId || !theme) {
       return NextResponse.json(
@@ -18,11 +18,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Analyze reference video if description provided
+    let videoAnalysis: string | undefined;
+    if (videoRefDescription) {
+      videoAnalysis = await analyzeReferenceVideo(videoRefDescription);
+    }
+
     // Pass reference images to Claude (with vision)
     const storyboard = await generateStoryboard(
       theme,
       (refImages as RefImage[]) || [],
-      numShots || 6
+      numShots || 6,
+      videoAnalysis
     );
 
     // Save storyboard to R2
@@ -35,6 +42,7 @@ export async function POST(req: NextRequest) {
     if (project) {
       project.status = "storyboard";
       project.storyboard = storyboard;
+      if (videoAnalysis) project.videoAnalysis = videoAnalysis;
       await uploadJSON(`videoritz/${projectId}/project.json`, project);
     }
 

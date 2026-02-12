@@ -27,6 +27,8 @@ export interface Shot {
   upscaledUrl?: string;
   animateTaskId?: string;
   videoUrl?: string;
+  failed?: boolean;
+  failError?: string;
 }
 
 export interface PipelineState {
@@ -39,6 +41,7 @@ export interface PipelineState {
   finalVideoBlob: Blob | null;
   error: string | null;
   progress: number; // 0-100
+  format: string;
 }
 
 const INITIAL_STATE: PipelineState = {
@@ -51,39 +54,24 @@ const INITIAL_STATE: PipelineState = {
   finalVideoBlob: null,
   error: null,
   progress: 0,
+  format: "16:9",
 };
 
 export function usePipeline() {
   const [state, setState] = useState<PipelineState>(INITIAL_STATE);
   const { startPolling, stopAll } = usePolling();
   const abortRef = useRef(false);
+  // Use a ref to always read the latest state inside async callbacks
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  // Store ref images for retries
+  const refImagesRef = useRef<{ base64: string; mimeType: string }[]>([]);
 
   const update = useCallback(
     (partial: Partial<PipelineState>) =>
       setState((prev) => ({ ...prev, ...partial })),
     []
   );
-
-  // Save pipeline state to R2 after each stage completion
-  const saveState = useCallback(async (currentState: PipelineState) => {
-    if (!currentState.projectId) return;
-
-    try {
-      await fetch(`/api/project/${currentState.projectId}/save-state`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          stage: currentState.stage,
-          shots: currentState.shots,
-          musicTaskId: currentState.musicTaskId,
-          musicUrl: currentState.musicUrl,
-          progress: currentState.progress,
-        }),
-      });
-    } catch (err) {
-      console.warn("Failed to save pipeline state:", err);
-    }
-  }, []);
 
   const updateShot = useCallback(
     (index: number, partial: Partial<Shot>) =>
@@ -96,19 +84,255 @@ export function usePipeline() {
     []
   );
 
+  // Save pipeline state to R2
+  const saveState = useCallback(async (currentState: PipelineState) => {
+    if (!currentState.projectId) return;
+    try {
+      await fetch(`/api/project/${currentState.projectId}/save-state`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage: currentState.stage,
+          shots: currentState.shots,
+          musicTaskId: currentState.musicTaskId,
+          musicUrl: currentState.musicUrl,
+          progress: currentState.progress,
+          format: currentState.format,
+        }),
+      });
+    } catch (err) {
+      console.warn("Failed to save pipeline state:", err);
+    }
+  }, []);
+
   const reset = useCallback(() => {
     stopAll();
     abortRef.current = true;
     setState(INITIAL_STATE);
   }, [stopAll]);
 
+  // ─── Helper: process a single shot through image → upscale → animate ───
+  const processShot = useCallback(
+    async (
+      shot: Shot,
+      projectId: string,
+      refImages: { base64: string; mimeType: string }[],
+      format: string
+    ) => {
+      try {
+        // Clear any previous failure
+        updateShot(shot.index, { failed: false, failError: undefined });
+
+        // 1. Generate image
+        const imgRes = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            shotIndex: shot.index,
+            prompt: shot.imagePrompt,
+            refImages,
+            format,
+          }),
+        });
+        const imgData = await imgRes.json();
+        if (!imgData.url) throw new Error(imgData.error || `Image generation failed`);
+        updateShot(shot.index, { imageUrl: imgData.url });
+
+        if (abortRef.current) return;
+
+        // 2. Upscale
+        const upRes = await fetch("/api/upscale/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, shotIndex: shot.index }),
+        });
+        const { taskId: upTaskId } = await upRes.json();
+        updateShot(shot.index, { upscaleTaskId: upTaskId });
+
+        const upscaledUrl = await startPolling(
+          `upscale_${shot.index}`,
+          async () => {
+            const r = await fetch(
+              `/api/upscale/poll?taskId=${upTaskId}&projectId=${projectId}&shotIndex=${shot.index}`
+            );
+            const data = await r.json();
+            if (data.status === "COMPLETED") return { done: true, data: data.url };
+            if (data.status === "FAILED") throw new Error(`Upscale failed`);
+            return { done: false };
+          },
+          { interval: 5000, maxAttempts: 120 }
+        );
+        updateShot(shot.index, { upscaledUrl: upscaledUrl as string });
+
+        if (abortRef.current) return;
+
+        // 3. Animate
+        const aRes = await fetch("/api/animate/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            shotIndex: shot.index,
+            prompt: shot.motionPrompt,
+            aspectRatio: format,
+          }),
+        });
+        const { taskId: animTaskId, provider } = await aRes.json();
+        updateShot(shot.index, { animateTaskId: animTaskId });
+
+        const videoUrl = await startPolling(
+          `animate_${shot.index}`,
+          async () => {
+            const r = await fetch(
+              `/api/animate/poll?taskId=${animTaskId}&projectId=${projectId}&shotIndex=${shot.index}&provider=${provider || "kling"}`
+            );
+            const data = await r.json();
+            if (data.status === "succeed") return { done: true, data: data.url };
+            if (data.status === "failed") throw new Error(`Animation failed`);
+            return { done: false };
+          },
+          { interval: 15000, maxAttempts: 80 }
+        );
+        updateShot(shot.index, { videoUrl: videoUrl as string });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        console.warn(`Shot ${shot.index} (${shot.name}) failed: ${message}`);
+        updateShot(shot.index, { failed: true, failError: message });
+      }
+    },
+    [updateShot, startPolling]
+  );
+
+  // ─── Main pipeline: parallel processing ───
+  const runPipeline = useCallback(
+    async (
+      shots: Shot[],
+      projectId: string,
+      theme: string,
+      refImages: { base64: string; mimeType: string }[],
+      format: string
+    ) => {
+      try {
+        update({ stage: "generating", progress: 16 });
+
+        // Start music generation in parallel (fire and forget, await later)
+        const musicPromise = (async () => {
+          // Fetch storyboard via API to avoid CORS issues with R2
+          const sbRes = await fetch(`/api/project/${projectId}`);
+          const projectData = await sbRes.json();
+          const storyboard = projectData.storyboard || {};
+
+          const mRes = await fetch("/api/music/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: storyboard.musicPrompt,
+              style: storyboard.musicStyle,
+              title: theme,
+            }),
+          });
+          const { taskId } = await mRes.json();
+          update({ musicTaskId: taskId });
+
+          const result = await startPolling(
+            "music",
+            async () => {
+              const r = await fetch(
+                `/api/music/poll?taskId=${taskId}&projectId=${projectId}`
+              );
+              const data = await r.json();
+              if (data.status === "SUCCESS") return { done: true, data: data.url };
+              if (data.status === "FAILED") throw new Error("Music generation failed");
+              return { done: false };
+            },
+            { interval: 10000, maxAttempts: 60 }
+          );
+          update({ musicUrl: result as string });
+          return result as string;
+        })();
+
+        // Process shots in parallel batches of 3 (image → upscale → animate per shot)
+        // Each shot handles its own errors — failed shots are marked but don't block others
+        const BATCH_SIZE = 3;
+        for (let batch = 0; batch < shots.length; batch += BATCH_SIZE) {
+          if (abortRef.current) return;
+
+          const batchShots = shots.slice(batch, batch + BATCH_SIZE);
+
+          // Update stage based on what the batch is doing
+          const batchProgress = batch / shots.length;
+          if (batchProgress < 0.33) update({ stage: "generating" });
+          else if (batchProgress < 0.66) update({ stage: "upscaling" });
+          else update({ stage: "animating" });
+
+          await Promise.allSettled(
+            batchShots.map((shot) =>
+              processShot(shot, projectId, refImages, format)
+            )
+          );
+
+          const completedShots = Math.min(batch + BATCH_SIZE, shots.length);
+          update({
+            progress: 16 + (completedShots / shots.length) * 64,
+          });
+
+          // Save state after each batch
+          const currentState = stateRef.current;
+          await saveState({
+            ...currentState,
+            progress: 16 + (completedShots / shots.length) * 64,
+          });
+        }
+
+        if (abortRef.current) return;
+
+        // Check how many shots succeeded
+        const latestShots = stateRef.current.shots;
+        const successCount = latestShots.filter((s) => s.videoUrl).length;
+        const failCount = latestShots.filter((s) => s.failed).length;
+
+        if (successCount === 0) {
+          update({ stage: "error", error: `All ${failCount} shots failed. Check your API keys.` });
+          return;
+        }
+
+        // Wait for music
+        update({ stage: "music", progress: 82 });
+        const musicUrl = await musicPromise;
+
+        if (abortRef.current) return;
+
+        // Trigger montage (even with partial shots)
+        update({ stage: "montage", progress: 85 });
+        setState((prev) => ({
+          ...prev,
+          musicUrl: musicUrl || prev.musicUrl,
+          stage: "montage",
+          progress: 85,
+        }));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Pipeline error";
+        update({ stage: "error", error: message });
+      }
+    },
+    [update, processShot, startPolling, saveState]
+  );
+
+  // ─── Entry point: start from form submission ───
   const run = useCallback(
-    async (theme: string, files: File[], numShots = 6, format = "16:9") => {
+    async (
+      theme: string,
+      files: File[],
+      numShots = 6,
+      format = "16:9",
+      videoRefDescription?: string
+    ) => {
       abortRef.current = false;
 
       try {
         // 1. Upload refs
-        update({ stage: "uploading", progress: 2 });
+        update({ stage: "uploading", progress: 2, format });
         const formData = new FormData();
         formData.append("theme", theme);
         formData.append("numShots", numShots.toString());
@@ -125,14 +349,13 @@ export function usePipeline() {
 
         if (abortRef.current) return;
 
-        // 2. Storyboard - Convert ref images to base64 for Claude vision
+        // 2. Storyboard
         update({ stage: "storyboard", progress: 8 });
 
         const refImages: { base64: string; mimeType: string }[] = [];
         for (const file of files) {
           const bytes = await file.arrayBuffer();
           const uint8 = new Uint8Array(bytes);
-          // Chunked conversion to avoid "Maximum call stack size exceeded"
           let binary = "";
           const chunkSize = 8192;
           for (let offset = 0; offset < uint8.length; offset += chunkSize) {
@@ -143,6 +366,7 @@ export function usePipeline() {
           const base64 = btoa(binary);
           refImages.push({ base64, mimeType: file.type || "image/png" });
         }
+        refImagesRef.current = refImages;
 
         const sbRes = await fetch("/api/storyboard", {
           method: "POST",
@@ -151,7 +375,8 @@ export function usePipeline() {
             projectId,
             theme,
             numShots,
-            refImages, // Send images to Claude for vision analysis
+            refImages,
+            videoRefDescription,
           }),
         });
         const storyboard = await sbRes.json();
@@ -159,18 +384,14 @@ export function usePipeline() {
         if (!storyboard.shots) throw new Error("Storyboard: no shots returned");
 
         const shots: Shot[] = storyboard.shots.map(
-          (s: Shot, i: number) => ({
-            ...s,
-            index: i,
-          })
+          (s: Shot, i: number) => ({ ...s, index: i })
         );
 
-        // Move to storyboard-review stage (user can edit)
+        // Move to storyboard-review
         update({ shots, stage: "storyboard-review", progress: 15 });
 
-        // Save state after storyboard
         await saveState({
-          ...state,
+          ...stateRef.current,
           projectId,
           stage: "storyboard-review",
           shots,
@@ -180,466 +401,149 @@ export function usePipeline() {
           finalVideoUrl: null,
           finalVideoBlob: null,
           error: null,
+          format,
         });
 
-        // Pipeline will pause here until user confirms the storyboard
-        return;
-
-        // 3. Start music in parallel
-        update({ stage: "generating" });
-        const musicPromise = (async () => {
-          const mRes = await fetch("/api/music/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt: storyboard.musicPrompt,
-              style: storyboard.musicStyle,
-              title: theme,
-            }),
-          });
-          const { taskId } = await mRes.json();
-          update({ musicTaskId: taskId });
-
-          // Poll music
-          const result = await startPolling(
-            "music",
-            async () => {
-              const r = await fetch(
-                `/api/music/poll?taskId=${taskId}&projectId=${projectId}`
-              );
-              const data = await r.json();
-              if (data.status === "SUCCESS")
-                return { done: true, data: data.url };
-              if (data.status === "FAILED")
-                throw new Error("Music generation failed");
-              return { done: false };
-            },
-            { interval: 10000, maxAttempts: 60 }
-          );
-          update({ musicUrl: result as string });
-          return result as string;
-        })();
-
-        // 4. Generate images in parallel batches of 2 (Gemini can handle 2 concurrent requests)
-        for (let batch = 0; batch < shots.length; batch += 2) {
-          if (abortRef.current) return;
-
-          const batchIndices = [batch];
-          if (batch + 1 < shots.length) batchIndices.push(batch + 1);
-
-          // Generate batch in parallel
-          await Promise.all(
-            batchIndices.map(async (i) => {
-              const imgRes = await fetch("/api/generate-image", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  projectId,
-                  shotIndex: i,
-                  prompt: shots[i].imagePrompt,
-                  refImages,
-                }),
-              });
-              const { url } = await imgRes.json();
-              updateShot(i, { imageUrl: url });
-            })
-          );
-
-          update({
-            progress: 15 + ((Math.min(batch + 2, shots.length)) / shots.length) * 20,
-          });
-        }
-
-        if (abortRef.current) return;
-
-        // 5. Upscale images
-        update({ stage: "upscaling", progress: 38 });
-        for (let i = 0; i < shots.length; i++) {
-          if (abortRef.current) return;
-          const upRes = await fetch("/api/upscale/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ projectId, shotIndex: i }),
-          });
-          const { taskId } = await upRes.json();
-          updateShot(i, { upscaleTaskId: taskId });
-
-          // Poll upscale
-          const result = await startPolling(
-            `upscale_${i}`,
-            async () => {
-              const r = await fetch(
-                `/api/upscale/poll?taskId=${taskId}&projectId=${projectId}&shotIndex=${i}`
-              );
-              const data = await r.json();
-              if (data.status === "COMPLETED")
-                return { done: true, data: data.url };
-              if (data.status === "FAILED")
-                throw new Error(`Upscale failed for shot ${i}`);
-              return { done: false };
-            },
-            { interval: 5000, maxAttempts: 120 }
-          );
-          updateShot(i, { upscaledUrl: result as string });
-          update({ progress: 38 + ((i + 1) / shots.length) * 15 });
-        }
-
-        if (abortRef.current) return;
-
-        // 6. Animate (batches of 2 for Kling limit)
-        update({ stage: "animating", progress: 55 });
-        for (let batch = 0; batch < shots.length; batch += 2) {
-          if (abortRef.current) return;
-          const batchIndices = [batch];
-          if (batch + 1 < shots.length) batchIndices.push(batch + 1);
-
-          // Start batch
-          const batchTasks: { index: number; taskId: string; provider: string }[] = [];
-          for (const idx of batchIndices) {
-            const aRes = await fetch("/api/animate/create", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                projectId,
-                shotIndex: idx,
-                prompt: shots[idx].motionPrompt,
-                aspectRatio: format,
-              }),
-            });
-            const { taskId, provider } = await aRes.json();
-            updateShot(idx, { animateTaskId: taskId });
-            batchTasks.push({ index: idx, taskId, provider: provider || "kling" });
-          }
-
-          // Poll batch in parallel
-          await Promise.all(
-            batchTasks.map(async ({ index, taskId, provider }) => {
-              const result = await startPolling(
-                `animate_${index}`,
-                async () => {
-                  const r = await fetch(
-                    `/api/animate/poll?taskId=${taskId}&projectId=${projectId}&shotIndex=${index}&provider=${provider}`
-                  );
-                  const data = await r.json();
-                  if (data.status === "succeed")
-                    return { done: true, data: data.url };
-                  if (data.status === "failed")
-                    throw new Error(`Animation failed for shot ${index}`);
-                  return { done: false };
-                },
-                { interval: 15000, maxAttempts: 80 }
-              );
-              updateShot(index, { videoUrl: result as string });
-            })
-          );
-
-          update({
-            progress:
-              55 +
-              ((Math.min(batch + 2, shots.length)) / shots.length) * 25,
-          });
-        }
-
-        if (abortRef.current) return;
-
-        // Wait for music if not done
-        update({ stage: "music", progress: 82 });
-        const musicUrl = await musicPromise;
-
-        if (abortRef.current) return;
-
-        // 7. FFmpeg montage (in-browser)
-        update({ stage: "montage", progress: 85 });
-
-        // Get all video URLs and music URL from state
-        // The montage will be done by the component using ffmpeg.wasm
-        // We just signal that we're ready
-        setState((prev) => ({
-          ...prev,
-          musicUrl: musicUrl || prev.musicUrl,
-          stage: "montage",
-          progress: 85,
-        }));
-
-        // The actual ffmpeg assembly happens in the component
-        // It will call finalizePipeline when done
+        // Pipeline pauses here until user confirms
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Pipeline error";
         update({ stage: "error", error: message });
       }
     },
-    [update, updateShot, startPolling, stopAll]
+    [update, saveState]
+  );
+
+  // ─── Continue from storyboard review ───
+  const continueFromStoryboard = useCallback(
+    async (
+      editedShots: Shot[],
+      theme: string,
+      files: File[],
+      numShots: number,
+      format: string
+    ) => {
+      setState((prev) => ({ ...prev, shots: editedShots }));
+
+      const projectId = stateRef.current.projectId;
+      if (!projectId) {
+        update({ stage: "error", error: "No project ID" });
+        return;
+      }
+
+      // Convert ref images
+      const refImages: { base64: string; mimeType: string }[] = [];
+      for (const file of files) {
+        const bytes = await file.arrayBuffer();
+        const uint8 = new Uint8Array(bytes);
+        let binary = "";
+        const chunkSize = 8192;
+        for (let offset = 0; offset < uint8.length; offset += chunkSize) {
+          binary += String.fromCharCode(
+            ...uint8.subarray(offset, offset + chunkSize)
+          );
+        }
+        const base64 = btoa(binary);
+        refImages.push({ base64, mimeType: file.type || "image/png" });
+      }
+      refImagesRef.current = refImages;
+
+      await runPipeline(editedShots, projectId, theme, refImages, format);
+    },
+    [update, runPipeline]
+  );
+
+  // ─── Resume from saved state ───
+  const resume = useCallback(
+    async (projectId: string) => {
+      try {
+        const res = await fetch(`/api/project/${projectId}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        const pipelineState = data.pipelineState;
+        if (!pipelineState) throw new Error("No saved pipeline state found");
+
+        // Restore state
+        setState({
+          ...INITIAL_STATE,
+          projectId,
+          stage: pipelineState.stage,
+          shots: pipelineState.shots || [],
+          musicTaskId: pipelineState.musicTaskId,
+          musicUrl: pipelineState.musicUrl,
+          progress: pipelineState.progress,
+          format: pipelineState.format || "16:9",
+        });
+
+        // Auto-continue: find incomplete shots and resume processing
+        const savedShots: Shot[] = pipelineState.shots || [];
+        const incompleteShots = savedShots.filter((s: Shot) => !s.videoUrl);
+
+        if (incompleteShots.length > 0 && pipelineState.stage !== "storyboard-review") {
+          // Resume pipeline for incomplete shots
+          abortRef.current = false;
+          await runPipeline(incompleteShots, projectId, data.theme || "", [], pipelineState.format || "16:9");
+        } else if (pipelineState.stage === "montage" || savedShots.every((s: Shot) => s.videoUrl)) {
+          // All shots complete, trigger montage
+          update({ stage: "montage", progress: 85 });
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Resume failed";
+        update({ stage: "error", error: message });
+      }
+    },
+    [update, runPipeline]
   );
 
   const finalizePipeline = useCallback(
     async (videoBlob: Blob, serverUrl?: string) => {
       update({ finalVideoBlob: videoBlob, progress: 95 });
 
-      // If we have a server URL (from server-side montage), use it directly
       if (serverUrl) {
         update({ finalVideoUrl: serverUrl, stage: "done", progress: 100 });
+        // Save final state
+        const currentState = stateRef.current;
+        await saveState({ ...currentState, stage: "done", progress: 100 });
         return;
       }
 
-      // Otherwise, upload the client-generated blob
-      if (state.projectId && videoBlob.size > 0) {
+      const pid = stateRef.current.projectId;
+      if (pid && videoBlob.size > 0) {
         const formData = new FormData();
         formData.append("video", videoBlob, "final.mp4");
-
-        const res = await fetch(
-          `/api/project/${state.projectId}/finalize`,
-          { method: "POST", body: formData }
-        );
+        const res = await fetch(`/api/project/${pid}/finalize`, {
+          method: "POST",
+          body: formData,
+        });
         const { url } = await res.json();
         update({ finalVideoUrl: url, stage: "done", progress: 100 });
+        const currentState = stateRef.current;
+        await saveState({ ...currentState, finalVideoUrl: url, stage: "done", progress: 100 });
       } else {
         update({ stage: "done", progress: 100 });
       }
     },
-    [state.projectId, update]
+    [update, saveState]
   );
 
   const skipToMontage = useCallback(() => {
-    // Allow manual trigger of montage stage
     update({ stage: "montage", progress: 85 });
   }, [update]);
 
-  const resume = useCallback(async (projectId: string) => {
-    try {
-      const res = await fetch(`/api/project/${projectId}`);
-      const data = await res.json();
+  // ─── Retry a single failed shot ───
+  const retryShot = useCallback(
+    async (shotIndex: number) => {
+      const currentState = stateRef.current;
+      const shot = currentState.shots.find((s) => s.index === shotIndex);
+      const projectId = currentState.projectId;
+      if (!shot || !projectId) return;
 
-      if (data.error) throw new Error(data.error);
+      await processShot(shot, projectId, refImagesRef.current, currentState.format);
 
-      const pipelineState = data.pipelineState;
-      if (!pipelineState) {
-        throw new Error("No saved pipeline state found");
-      }
-
-      // Restore state
-      setState({
-        ...INITIAL_STATE,
-        projectId,
-        stage: pipelineState.stage,
-        shots: pipelineState.shots || [],
-        musicTaskId: pipelineState.musicTaskId,
-        musicUrl: pipelineState.musicUrl,
-        progress: pipelineState.progress,
-      });
-
-      // Determine where to resume based on stage
-      // User will need to manually trigger continuation or we can auto-continue
-      console.log(`Resumed project ${projectId} at stage: ${pipelineState.stage}`);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Resume failed";
-      update({ stage: "error", error: message });
-    }
-  }, [update]);
-
-  const continueFromStoryboard = useCallback(
-    async (editedShots: Shot[], theme: string, files: File[], numShots: number, format: string) => {
-      try {
-        // Update shots with edited version
-        setState((prev) => ({ ...prev, shots: editedShots }));
-
-        if (abortRef.current) return;
-
-        const projectId = state.projectId;
-        if (!projectId) throw new Error("No project ID");
-
-        // Convert ref images to base64 (if they exist)
-        const refImages: { base64: string; mimeType: string }[] = [];
-        for (const file of files) {
-          const bytes = await file.arrayBuffer();
-          const uint8 = new Uint8Array(bytes);
-          let binary = "";
-          const chunkSize = 8192;
-          for (let offset = 0; offset < uint8.length; offset += chunkSize) {
-            binary += String.fromCharCode(
-              ...uint8.subarray(offset, offset + chunkSize)
-            );
-          }
-          const base64 = btoa(binary);
-          refImages.push({ base64, mimeType: file.type || "image/png" });
-        }
-
-        // Continue from generating stage
-        update({ stage: "generating" });
-
-        // 3. Start music in parallel
-        const musicPromise = (async () => {
-          // Fetch storyboard from R2 to get music prompts
-          const sbRes = await fetch(`${process.env.NEXT_PUBLIC_R2_URL || "https://pub-536e22068e764b9bafbad4eae700ea0b.r2.dev"}/videoritz/${projectId}/storyboard.json`);
-          const storyboard = await sbRes.json();
-
-          const mRes = await fetch("/api/music/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt: storyboard.musicPrompt,
-              style: storyboard.musicStyle,
-              title: theme,
-            }),
-          });
-          const { taskId } = await mRes.json();
-          update({ musicTaskId: taskId });
-
-          const result = await startPolling(
-            "music",
-            async () => {
-              const r = await fetch(
-                `/api/music/poll?taskId=${taskId}&projectId=${projectId}`
-              );
-              const data = await r.json();
-              if (data.status === "SUCCESS")
-                return { done: true, data: data.url };
-              if (data.status === "FAILED")
-                throw new Error("Music generation failed");
-              return { done: false };
-            },
-            { interval: 10000, maxAttempts: 60 }
-          );
-          update({ musicUrl: result as string });
-          return result as string;
-        })();
-
-        // 4. Generate images in parallel batches of 2
-        for (let batch = 0; batch < editedShots.length; batch += 2) {
-          if (abortRef.current) return;
-
-          const batchIndices = [batch];
-          if (batch + 1 < editedShots.length) batchIndices.push(batch + 1);
-
-          await Promise.all(
-            batchIndices.map(async (i) => {
-              const imgRes = await fetch("/api/generate-image", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  projectId,
-                  shotIndex: i,
-                  prompt: editedShots[i].imagePrompt,
-                  refImages,
-                }),
-              });
-              const { url } = await imgRes.json();
-              updateShot(i, { imageUrl: url });
-            })
-          );
-
-          update({
-            progress: 15 + ((Math.min(batch + 2, editedShots.length)) / editedShots.length) * 20,
-          });
-        }
-
-        if (abortRef.current) return;
-
-        // 5. Upscale images
-        update({ stage: "upscaling", progress: 38 });
-        for (let i = 0; i < editedShots.length; i++) {
-          if (abortRef.current) return;
-          const upRes = await fetch("/api/upscale/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ projectId, shotIndex: i }),
-          });
-          const { taskId } = await upRes.json();
-          updateShot(i, { upscaleTaskId: taskId });
-
-          const result = await startPolling(
-            `upscale_${i}`,
-            async () => {
-              const r = await fetch(
-                `/api/upscale/poll?taskId=${taskId}&projectId=${projectId}&shotIndex=${i}`
-              );
-              const data = await r.json();
-              if (data.status === "COMPLETED")
-                return { done: true, data: data.url };
-              if (data.status === "FAILED")
-                throw new Error(`Upscale failed for shot ${i}`);
-              return { done: false };
-            },
-            { interval: 5000, maxAttempts: 120 }
-          );
-          updateShot(i, { upscaledUrl: result as string });
-          update({ progress: 38 + ((i + 1) / editedShots.length) * 15 });
-        }
-
-        if (abortRef.current) return;
-
-        // 6. Animate (batches of 2 for Kling limit)
-        update({ stage: "animating", progress: 55 });
-        for (let batch = 0; batch < editedShots.length; batch += 2) {
-          if (abortRef.current) return;
-          const batchIndices = [batch];
-          if (batch + 1 < editedShots.length) batchIndices.push(batch + 1);
-
-          const batchTasks: { index: number; taskId: string }[] = [];
-          for (const idx of batchIndices) {
-            const aRes = await fetch("/api/animate/create", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                projectId,
-                shotIndex: idx,
-                prompt: editedShots[idx].motionPrompt,
-              }),
-            });
-            const { taskId } = await aRes.json();
-            updateShot(idx, { animateTaskId: taskId });
-            batchTasks.push({ index: idx, taskId });
-          }
-
-          await Promise.all(
-            batchTasks.map(async ({ index, taskId }) => {
-              const result = await startPolling(
-                `animate_${index}`,
-                async () => {
-                  const r = await fetch(
-                    `/api/animate/poll?taskId=${taskId}&projectId=${projectId}&shotIndex=${index}`
-                  );
-                  const data = await r.json();
-                  if (data.status === "succeed")
-                    return { done: true, data: data.url };
-                  if (data.status === "failed")
-                    throw new Error(`Animation failed for shot ${index}`);
-                  return { done: false };
-                },
-                { interval: 15000, maxAttempts: 80 }
-              );
-              updateShot(index, { videoUrl: result as string });
-            })
-          );
-
-          update({
-            progress:
-              55 +
-              ((Math.min(batch + 2, editedShots.length)) / editedShots.length) * 25,
-          });
-        }
-
-        if (abortRef.current) return;
-
-        // Wait for music if not done
-        update({ stage: "music", progress: 82 });
-        const musicUrl = await musicPromise;
-
-        if (abortRef.current) return;
-
-        // 7. FFmpeg montage
-        update({ stage: "montage", progress: 85 });
-        setState((prev) => ({
-          ...prev,
-          musicUrl: musicUrl || prev.musicUrl,
-          stage: "montage",
-          progress: 85,
-        }));
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Pipeline error";
-        update({ stage: "error", error: message });
-      }
+      // Save state after retry
+      await saveState(stateRef.current);
     },
-    [state.projectId, update, updateShot, startPolling]
+    [processShot, saveState]
   );
 
   return {
@@ -652,5 +556,6 @@ export function usePipeline() {
     resume,
     saveState,
     continueFromStoryboard,
+    retryShot,
   };
 }

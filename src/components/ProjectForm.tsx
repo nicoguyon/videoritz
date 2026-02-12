@@ -2,12 +2,18 @@
 
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, X, Film, Sparkles, ImagePlus } from "lucide-react";
+import { X, Sparkles, ImagePlus, Video } from "lucide-react";
 
 export type VideoFormat = "9:16" | "16:9" | "1:1";
 
 interface ProjectFormProps {
-  onSubmit: (theme: string, files: File[], numShots: number, format: VideoFormat) => void;
+  onSubmit: (
+    theme: string,
+    files: File[],
+    numShots: number,
+    format: VideoFormat,
+    videoRefDescription?: string
+  ) => void;
   disabled: boolean;
 }
 
@@ -18,6 +24,8 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
   const [dragOver, setDragOver] = useState(false);
   const [numShots, setNumShots] = useState<number>(6);
   const [format, setFormat] = useState<VideoFormat>("16:9");
+  const [videoRefDescription, setVideoRefDescription] = useState("");
+  const [showVideoRef, setShowVideoRef] = useState(false);
 
   const addFiles = useCallback((newFiles: FileList | File[]) => {
     const fileArray = Array.from(newFiles).filter((f) =>
@@ -51,7 +59,13 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!theme.trim()) return;
-    onSubmit(theme.trim(), files, numShots, format);
+    onSubmit(
+      theme.trim(),
+      files,
+      numShots,
+      format,
+      videoRefDescription.trim() || undefined
+    );
   };
 
   return (
@@ -74,7 +88,7 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
       {/* Format selector */}
       <div>
         <label className="block text-xs font-medium text-ritz-muted mb-2">
-          Format vidéo
+          Format video
         </label>
         <div className="grid grid-cols-3 gap-2">
           {(["9:16", "16:9", "1:1"] as VideoFormat[]).map((f) => (
@@ -89,9 +103,9 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
                   : "bg-ritz-card border border-ritz-border text-ritz-muted hover:border-ritz-accent/50 hover:text-ritz-text"
               } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
             >
-              {f === "9:16" && "📱 Portrait (TikTok)"}
-              {f === "16:9" && "🎬 Paysage (YouTube)"}
-              {f === "1:1" && "📸 Carré (Instagram)"}
+              {f === "9:16" && "Portrait (TikTok)"}
+              {f === "16:9" && "Paysage (YouTube)"}
+              {f === "1:1" && "Carre (Instagram)"}
             </button>
           ))}
         </div>
@@ -102,8 +116,8 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
         <label className="block text-xs font-medium text-ritz-muted mb-2">
           Nombre de plans
         </label>
-        <div className="grid grid-cols-3 gap-2">
-          {[4, 6, 8].map((n) => (
+        <div className="grid grid-cols-4 gap-2">
+          {[4, 6, 8, 10].map((n) => (
             <button
               key={n}
               type="button"
@@ -203,6 +217,41 @@ export default function ProjectForm({ onSubmit, disabled }: ProjectFormProps) {
                   )}
                 </motion.div>
               ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Video reference description (collapsible) */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowVideoRef(!showVideoRef)}
+          disabled={disabled}
+          className="flex items-center gap-2 text-xs font-medium text-ritz-muted hover:text-ritz-accent transition-colors cursor-pointer"
+        >
+          <Video size={14} />
+          {showVideoRef ? "Masquer" : "Ajouter"} une reference video
+        </button>
+        <AnimatePresence>
+          {showVideoRef && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-3"
+            >
+              <textarea
+                value={videoRefDescription}
+                onChange={(e) => setVideoRefDescription(e.target.value)}
+                placeholder="Decrivez une video de reference : style visuel, mouvements camera, transitions, ambiance... Ex: Video 44s romance parisienne, palette or/rouge/noir, Ken Burns lent, transitions fade, quiet luxury"
+                rows={3}
+                className="w-full bg-ritz-card border border-ritz-border rounded-xl px-4 py-3 text-sm outline-none transition-all duration-300 resize-none focus:border-ritz-accent focus:ring-2 focus:ring-ritz-accent/20 placeholder:text-ritz-muted/50"
+                disabled={disabled}
+              />
+              <p className="text-[10px] text-ritz-muted/60 mt-1">
+                Claude analysera cette description pour reproduire le style cinematique
+              </p>
             </motion.div>
           )}
         </AnimatePresence>

@@ -19,12 +19,60 @@ interface RefImage {
   mimeType: string;
 }
 
+/**
+ * Analyze a reference video description to extract cinematic style for replication.
+ */
+export async function analyzeReferenceVideo(
+  videoDescription: string
+): Promise<string> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 2048,
+      system: `You are a cinematic video analyst. Analyze the described reference video and extract:
+1. Visual style (color palette, lighting, contrast, grain/texture)
+2. Camera movements (pan, tilt, dolly, crane, tracking, static, Ken Burns)
+3. Transitions (fade, crossfade, cut, dissolve, wipe)
+4. Pacing and timing (shot duration, rhythm, tempo)
+5. Mood and atmosphere (emotional tone, energy level)
+6. Composition patterns (framing, depth of field, rule of thirds)
+
+Be specific and detailed. This analysis will be used to guide AI storyboard generation.`,
+      messages: [
+        {
+          role: "user",
+          content: `Analyze this reference video for cinematic style replication:\n\n${videoDescription}`,
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Claude analysis error ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.content?.[0]?.text || "";
+}
+
 export async function generateStoryboard(
   theme: string,
   refImages: RefImage[] = [],
-  numShots = 6
+  numShots = 6,
+  videoAnalysis?: string
 ): Promise<StoryboardResult> {
   const shotDuration = Math.round(30 / numShots);
+
+  const videoContext = videoAnalysis
+    ? `\n\nREFERENCE VIDEO ANALYSIS (replicate this cinematic style):\n${videoAnalysis}\n\nUse the exact same visual style, camera movements, transitions, pacing, and mood described above.`
+    : "";
+
   const systemPrompt = `You are a cinematic storyboard director. Given a theme and optional reference images, create exactly ${numShots} shots for a ${30}-second cinematic video (~${shotDuration}s per shot).
 
 For each shot, provide:
@@ -39,7 +87,7 @@ IMPORTANT RULES:
 - PEOPLE AND CHARACTERS: At least 4 out of ${numShots} shots MUST feature human characters prominently (faces, hands, expressions, gestures). Empty scenes without people feel lifeless. Show the protagonist(s), their emotions, their actions. Close-ups of hands doing something, faces reacting, bodies moving. The best cinematic content puts PEOPLE at the center.
 - If reference images are provided, ANALYZE them carefully and incorporate their visual style, color palette, lighting, composition, and mood into your image prompts.
 - Maintain visual consistency across all shots (same characters, same style, same color palette).
-- Describe characters in detail in EVERY shot they appear in (clothing, appearance, position) for AI image consistency.
+- Describe characters in detail in EVERY shot they appear in (clothing, appearance, position) for AI image consistency.${videoContext}
 
 Respond in valid JSON only, no markdown.`;
 
