@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const bytes = await file.arrayBuffer();
-      const key = `videoritz/${projectId}/refs/ref_${i}.png`;
+      const key = `ritz/${projectId}/refs/ref_${i}.png`;
       const url = await uploadBuffer(key, Buffer.from(bytes), file.type || "image/png");
       refUrls.push(url);
     }
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       status: "created",
     };
 
-    await uploadJSON(`videoritz/${projectId}/project.json`, project);
+    await uploadJSON(`ritz/${projectId}/project.json`, project);
 
     return NextResponse.json({ projectId, refUrls });
   } catch (err: unknown) {

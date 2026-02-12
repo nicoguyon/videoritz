@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
       const imageRes = await fetch(result.url);
       if (!imageRes.ok) throw new Error(`Failed to download upscaled image: ${imageRes.status}`);
       const buffer = Buffer.from(await imageRes.arrayBuffer());
-      const key = `videoritz/${projectId}/upscaled/shot_${shotIndex}.png`;
+      const key = `ritz/${projectId}/upscaled/shot_${shotIndex}.png`;
       const r2Url = await uploadBuffer(key, buffer, "image/png");
       return NextResponse.json({ status: "COMPLETED", url: r2Url });
     }

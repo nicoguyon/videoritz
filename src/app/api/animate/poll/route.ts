@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       const videoRes = await fetch(videoUrl);
       if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.status}`);
       const buffer = Buffer.from(await videoRes.arrayBuffer());
-      const key = `videoritz/${projectId}/videos/shot_${shotIndex}.mp4`;
+      const key = `ritz/${projectId}/videos/shot_${shotIndex}.mp4`;
       const r2Url = await uploadBuffer(key, buffer, "video/mp4");
       return NextResponse.json({ status: "succeed", url: r2Url });
     }

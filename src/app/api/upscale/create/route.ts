@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Download image from R2 and convert to base64
-    const key = `videoritz/${projectId}/images/shot_${shotIndex}.png`;
+    const key = `ritz/${projectId}/images/shot_${shotIndex}.png`;
     const buffer = await downloadBuffer(key);
     const base64 = buffer.toString("base64");
 

@@ -11,7 +11,7 @@ export async function POST(
     const stateData = await req.json();
 
     // Save pipeline state to R2
-    await uploadJSON(`videoritz/${projectId}/pipeline-state.json`, stateData);
+    await uploadJSON(`ritz/${projectId}/pipeline-state.json`, stateData);
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {

@@ -8,13 +8,13 @@ export async function GET(
   const { id } = await params;
 
   try {
-    const project = await readJSON(`videoritz/${id}/project.json`);
+    const project = await readJSON(`ritz/${id}/project.json`);
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
     // Also load pipeline state if it exists
-    const pipelineState = await readJSON(`videoritz/${id}/pipeline-state.json`);
+    const pipelineState = await readJSON(`ritz/${id}/pipeline-state.json`);
 
     return NextResponse.json({
       ...project,

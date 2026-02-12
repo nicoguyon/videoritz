@@ -17,10 +17,10 @@ export async function POST(req: NextRequest) {
     // Get image key (prefer upscaled)
     let imageKey: string;
     try {
-      imageKey = `videoritz/${projectId}/upscaled/shot_${shotIndex}.png`;
+      imageKey = `ritz/${projectId}/upscaled/shot_${shotIndex}.png`;
       await downloadBuffer(imageKey);
     } catch {
-      imageKey = `videoritz/${projectId}/images/shot_${shotIndex}.png`;
+      imageKey = `ritz/${projectId}/images/shot_${shotIndex}.png`;
     }
 
     let taskId: string;

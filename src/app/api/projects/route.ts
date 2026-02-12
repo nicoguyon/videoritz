@@ -19,14 +19,14 @@ export async function GET() {
     const result = await s3.send(
       new ListObjectsV2Command({
         Bucket: BUCKET,
-        Prefix: "videoritz/",
+        Prefix: "ritz/",
         Delimiter: "/",
       })
     );
 
     const projects = (result.CommonPrefixes || [])
       .map((prefix) => {
-        const projectId = prefix.Prefix?.replace("videoritz/", "").replace("/", "");
+        const projectId = prefix.Prefix?.replace("ritz/", "").replace("/", "");
         return projectId ? { id: projectId } : null;
       })
       .filter((p): p is { id: string } => p !== null);
@@ -35,7 +35,7 @@ export async function GET() {
     const projectsWithMeta = await Promise.all(
       projects.map(async ({ id }) => {
         try {
-          const data = await readJSON<Record<string, unknown>>(`videoritz/${id}/project.json`);
+          const data = await readJSON<Record<string, unknown>>(`ritz/${id}/project.json`);
           if (!data) return { id, status: "unknown", theme: "Unknown" };
           return {
             id,
@@ -69,7 +69,7 @@ export async function DELETE(req: NextRequest) {
     const listResult = await s3.send(
       new ListObjectsV2Command({
         Bucket: BUCKET,
-        Prefix: `videoritz/${projectId}/`,
+        Prefix: `ritz/${projectId}/`,
       })
     );
 

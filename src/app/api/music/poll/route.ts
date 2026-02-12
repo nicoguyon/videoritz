@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
       const audioRes = await fetch(result.audioUrl);
       if (!audioRes.ok) throw new Error(`Failed to download audio: ${audioRes.status}`);
       const buffer = Buffer.from(await audioRes.arrayBuffer());
-      const key = `videoritz/${projectId}/music/track.mp3`;
+      const key = `ritz/${projectId}/music/track.mp3`;
       const r2Url = await uploadBuffer(key, buffer, "audio/mpeg");
       return NextResponse.json({
         status: "SUCCESS",

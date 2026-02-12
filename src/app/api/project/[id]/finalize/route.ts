@@ -83,16 +83,16 @@ export async function POST(
       }
 
       const bytes = await videoFile.arrayBuffer();
-      const key = `videoritz/${projectId}/final.mp4`;
+      const key = `ritz/${projectId}/final.mp4`;
       const url = await uploadBuffer(key, Buffer.from(bytes), "video/mp4");
 
       const project = await readJSON<Record<string, unknown>>(
-        `videoritz/${projectId}/project.json`
+        `ritz/${projectId}/project.json`
       );
       if (project) {
         project.status = "finalized";
         project.finalVideoUrl = url;
-        await uploadJSON(`videoritz/${projectId}/project.json`, project);
+        await uploadJSON(`ritz/${projectId}/project.json`, project);
       }
 
       return NextResponse.json({ url, mode: "client" });
@@ -114,14 +114,14 @@ export async function POST(
       shots?: Array<{ videoUrl?: string }>;
       musicUrl?: string;
       format?: string;
-    }>(`videoritz/${projectId}/pipeline-state.json`);
+    }>(`ritz/${projectId}/pipeline-state.json`);
 
     // Fallback to project.json
     const project = await readJSON<{
       shots?: Array<{ videoUrl?: string }>;
       musicUrl?: string;
       format?: string;
-    }>(`videoritz/${projectId}/project.json`);
+    }>(`ritz/${projectId}/project.json`);
 
     const shots = pipelineState?.shots || project?.shots;
     const musicUrl = pipelineState?.musicUrl || project?.musicUrl;
@@ -328,19 +328,19 @@ export async function POST(
 
     const finalBuffer = readFileSync(outputPath);
     const url = await uploadBuffer(
-      `videoritz/${projectId}/final.mp4`,
+      `ritz/${projectId}/final.mp4`,
       finalBuffer,
       "video/mp4"
     );
 
     // Update project status
     const updatedProject = await readJSON<Record<string, unknown>>(
-      `videoritz/${projectId}/project.json`
+      `ritz/${projectId}/project.json`
     );
     if (updatedProject) {
       updatedProject.status = "finalized";
       updatedProject.finalVideoUrl = url;
-      await uploadJSON(`videoritz/${projectId}/project.json`, updatedProject);
+      await uploadJSON(`ritz/${projectId}/project.json`, updatedProject);
     }
 
     // Cleanup

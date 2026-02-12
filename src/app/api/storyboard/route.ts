@@ -33,17 +33,17 @@ export async function POST(req: NextRequest) {
     );
 
     // Save storyboard to R2
-    await uploadJSON(`videoritz/${projectId}/storyboard.json`, storyboard);
+    await uploadJSON(`ritz/${projectId}/storyboard.json`, storyboard);
 
     // Update project
     const project = await readJSON<Record<string, unknown>>(
-      `videoritz/${projectId}/project.json`
+      `ritz/${projectId}/project.json`
     );
     if (project) {
       project.status = "storyboard";
       project.storyboard = storyboard;
       if (videoAnalysis) project.videoAnalysis = videoAnalysis;
-      await uploadJSON(`videoritz/${projectId}/project.json`, project);
+      await uploadJSON(`ritz/${projectId}/project.json`, project);
     }
 
     return NextResponse.json(storyboard);

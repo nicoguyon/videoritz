@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     // refImages = [{ base64, mimeType }] (already base64-encoded from client)
     const imageBuffer = await generateImage(prompt, refImages || [], format || "16:9");
 
-    const key = `videoritz/${projectId}/images/shot_${shotIndex}.png`;
+    const key = `ritz/${projectId}/images/shot_${shotIndex}.png`;
     const url = await uploadBuffer(key, imageBuffer, "image/png");
 
     return NextResponse.json({ url, shotIndex });
